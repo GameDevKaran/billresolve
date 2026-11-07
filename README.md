@@ -1,29 +1,33 @@
 # BillResolve
 
-Resolve questioned unpaid invoice lines through approved revisions.
+An evidence-led correction for a questioned unpaid invoice. Preserve the original, inspect supplied records, edit an exact revision, record both demo-role approvals, then cancel the unpaid original and issue the correction.
 
-## Status
+The local application is implemented and browser-verified. PayPal and evidence analysis default to labeled test doubles; live Sandbox transactions, real inference and public deployment remain pending. No real payment or invoice email occurs in local mode.
 
-This repository contains the initial product documentation. Application development has not started. There is no runnable application, measured benchmark or deployed service yet.
+## Run
 
-## Intended use
+Use Node.js24. No runtime npm packages are needed.
 
-A freelancer's customer questions two line items on an unpaid invoice. BillResolve links each questioned item to supplied work evidence, asks for missing facts and creates a corrected invoice only after both sides approve the exact revision. It is ordinary invoice clarification, not a formal PayPal dispute or legal adjudication.
+```sh
+node --test tests/*.test.mjs
+node --env-file-if-exists=.env.local src/server.mjs
+```
 
-## Planned workflow
+Open http://127.0.0.1:8803. Start the authored example, issue the local original, question the revision-session line, review its record, change quantity from two to one, prepare the $140 correction against the $180 original, record both exact approvals, and issue. Use the labeled local payment simulation to finish the receipt trail. SQLite state survives restart; export preserves the original and revision.
 
-Import one authored unpaid Sandbox invoice and owned deliverable records → buyer questions a line → model links relevant evidence and identifies uncertainty → merchant edits proposed correction → buyer/merchant approve totals → cancel/supersede the unpaid invoice through supported API actions and issue the corrected one → buyer pays in Sandbox → provider read-back reconciles status. Prefer explicit supersession over silently editing disputed history. If provider status changed to paid, stop and ask for a separately reviewed workflow; no automatic refund.
+## Working boundaries
 
-## Development
+- AI can explain records and ask for missing facts. Citation IDs and quoted substrings are checked. Quote validation does not prove work was delivered or make every interpretation correct.
+- Merchant edits own amounts. Integer USD cents, quantities and explicit tax rates determine totals. Tax is calculated per line before the invoice discount; no tax advice is offered.
+- Question/revision changes clear approvals. Both approvals bind the original invoice ID, evidence, question and exact revision.
+- Fresh provider status gates cancellation. Paid/partially paid controls refuse replacement; no automatic refund exists.
+- Provider intent is saved before writes. An unresolved creation never repeats automatically or permits abandoning the active case. It needs Sandbox-account review. Cancellation and issuing require read-back.
+- Sandbox transport uses a fixed origin, configured test merchant/buyer, suppressed email notifications and no production or mark-paid API. The buyer pays through PayPal; returned status and payment type are displayed separately.
 
-Start with the behavior and boundaries in [Architecture](docs/architecture.md), then establish the fixtures and acceptance checks in [Verification plan](docs/verification-plan.md). Runtime versions, dependency installation, commands and deployment instructions will be added alongside working code. No installation command is available at this stage.
+Both demo roles share one private session; they are not separate authenticated people. The demonstrated scope uses three authored fictional service lines and one correction. Arbitrary invoice imports, multiple currencies, uploads, collection and notifications are excluded. The engine accepts up to ten lines. Explicit provider read-back replaces the initially proposed webhook inbox; no webhook delivery is claimed.
 
-Keep credentials in local ignored files or the deployment secret store. Do not commit user data, provider tokens or private evaluation records.
+## Configuration and verification
 
-## Development approach
+Copy `.env.example` to ignored `.env.local`; keep credentials server-side. See [deployment](docs/deployment.md). Thirteen local tests cover amounts, evidence, approvals, transport fixtures, persistence, stale paid state, lost responses and request security. Actual browser checks exercised the complete local flow, reload and export. These are automated/browser-agent checks, not human reviews or live sponsor verification.
 
-The planned development approach is AI-assisted coding and ChatGPT-assisted research. This repository is a preparation foundation; implementation and application verification remain pending.
-
-## License
-
-Original application code and these documents use the [MIT license](LICENSE). Future dependencies, models, datasets and media retain their own licenses and must be reviewed before inclusion.
+Built with AI-assisted coding and ChatGPT-assisted research. [Reuse and licenses](THIRD_PARTY_NOTICES.md). Original code: [MIT](LICENSE).

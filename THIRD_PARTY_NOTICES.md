@@ -1,0 +1,1 @@
+BillResolve original code uses MIT. The SQLite/GCS persistence helper is adapted from owner-authored StockSwap commit f96283a2c457e5efa60e44529f68f60694241deb (MIT), with separate names, storage and identities. No prior submitted app was modified. Node.js and its bundled SQLite retain their upstream licenses. No runtime npm packages or third-party media are included.

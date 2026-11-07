@@ -1,15 +1,11 @@
-# BillResolve: architecture
+# BillResolve architecture
 
-Proposed design; no components have been implemented.
+Native Node24 HTTP service, exact amount/domain functions, SQLite private sessions, generation-checked GCS adapter, isolated Sandbox Invoicing transport and constrained evidence model adapter. Vanilla JavaScript UI uses text nodes and no remote assets. ESM replaces the proposed TypeScript build to keep setup small.
 
-Import one authored unpaid Sandbox invoice and owned deliverable records → buyer questions a line → model links relevant evidence and identifies uncertainty → merchant edits proposed correction → buyer/merchant approve totals → cancel/supersede the unpaid invoice through supported API actions and issue the corrected one → buyer pays in Sandbox → provider read-back reconciles status. Prefer explicit supersession over silently editing disputed history. If provider status changed to paid, stop and ask for a separately reviewed workflow; no automatic refund.
+Authored original → unpaid provider read-back → questioned line → cited evidence and missing facts → exact revision → both demo approvals → fresh unpaid check → confirmed cancellation → corrected draft → exact amount/line check → issue → buyer payment and explicit read-back.
 
-TypeScript portal, model extraction, deterministic decimal totals, PayPal Invoicing adapter and append-only revision ledger. Support one merchant, one currency, ten line items and explicit taxes/discounts supplied by the user. Exclude tax advice, legal enforcement, debt collection, escrow, real email recipients and production invoicing. Sandbox delivery targets only the test accounts.
+The server owns provider IDs, operation stages and approval hashes. Private HttpOnly sessions, same-origin POST, payload limits, static allowlist, CSP and throttling are included. Both fictional roles operate in one session; no identity verification is implied.
 
-## Failure handling and data boundaries
+Provider calls are not a database transaction. Each intent is persisted before writing. Lost draft responses lock automatic creation; known IDs permit read-back. A failed or racing cancellation cannot permit a replacement. Payment status/type is reported as returned; an externally recorded payment is not automatically called a PayPal capture.
 
-Preserve original inputs and make unavailable evidence explicit. Provider failures must return a visible unresolved state. Decisions that change user or provider state need the confirmation specified above. Record source versions and operation identifiers without exposing credentials.
-
-## Implementation record
-
-Add pinned dependencies, actual component boundaries and operational instructions when the first working slice exists. Document departures from this design with their reason; do not describe planned integrations as verified.
+Live Sandbox capability, AI quality, GCS runtime persistence and public release remain unverified. Local tests use deterministic provider doubles and controlled HTTP fixtures. No measured revenue, personal experience or production reliability claim is made.
