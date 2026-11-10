@@ -27,7 +27,7 @@ export function createApp({store=new SqliteStore(),paypal=null,ai=new EvidenceAI
    if(op.stage==='cancel'){
     await readback(s,pay);await save();
     if(s.originalProvider.status==='CANCELLED'){op.stage='create';op.attempted=false;d.event(s,'original_cancelled_readback',{invoiceId:s.originalProvider.id});await save();continue;}
-    if(!['SENT','UNPAID'].includes(s.originalProvider.status)||s.originalProvider.paidAmountCents!==0)d.fail('ORIGINAL_NOT_UNPAID','Original invoice is no longer wholly unpaid. No replacement was issued.');
+    if(!['SENT','SHARED','UNPAID'].includes(s.originalProvider.status)||s.originalProvider.paidAmountCents!==0)d.fail('ORIGINAL_NOT_UNPAID','Original invoice is no longer wholly unpaid. No replacement was issued.');
     if(op.attempted)d.fail('PROVIDER_UNRESOLVED','Cancellation outcome remains unresolved. Read provider state; do not issue a second invoice.');
     if(!write)return;op.attempted=true;await save();await pay.cancel(s.originalProvider.id);continue;
    }
@@ -38,7 +38,7 @@ export function createApp({store=new SqliteStore(),paypal=null,ai=new EvidenceAI
    }
    if(op.stage==='send'){
     await readback(s,pay);await save();const proof=s[target];
-    if(['SENT','UNPAID','PAID'].includes(proof.status)){s.status=proof.status==='PAID'?'paid':replacement?'issued':'reviewing';s.operation=null;d.event(s,replacement?'replacement_issued_readback':'original_issued_readback',{invoiceId:proof.id,totalCents:proof.totalCents});await save();return;}
+    if(['SENT','SHARED','UNPAID','PAID'].includes(proof.status)){s.status=proof.status==='PAID'?'paid':replacement?'issued':'reviewing';s.operation=null;d.event(s,replacement?'replacement_issued_readback':'original_issued_readback',{invoiceId:proof.id,totalCents:proof.totalCents});await save();return;}
     if(proof.status!=='DRAFT')d.fail('INVOICE_NOT_DRAFT','Invoice state does not permit issuing this prepared draft.');
     if(op.attempted)d.fail('SEND_UNRESOLVED','Issue request is unresolved. Read provider state before further changes.');
     if(!write)return;op.attempted=true;await save();await pay.send(proof.id);continue;

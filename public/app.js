@@ -6,7 +6,7 @@ function notice(text,bad=false){$('notice').hidden=false;$('notice').textContent
 function control(){
  show('operator-gate',data.integration.operatorRequired);$('operator-unlock').disabled=busy;
  if(data.integration.operatorRequired){for(const id of ['new','original','reconcile','ask','analyze','prepare','merchant-approve','buyer-approve','issue','simulate'])$(id).disabled=true;return;}
-const s=data.case,editable=s?.originalProvider&&['SENT','UNPAID'].includes(s.originalProvider.status)&&!s.operation&&!['issued','paid','blocked_paid'].includes(s.status);
+const s=data.case,editable=s?.originalProvider&&['SENT','SHARED','UNPAID'].includes(s.originalProvider.status)&&!s.operation&&!['issued','paid','blocked_paid'].includes(s.status);
  for(const id of ['refresh','new','original','reconcile','ask','analyze','prepare','merchant-approve','buyer-approve','issue','simulate'])$(id).disabled=busy;
  $('new').disabled=busy||!!s?.operation||!!s?.originalProvider&&s.status!=='paid';$('original').disabled=busy||!s||!!s.originalProvider&&!s.operation||s.operation?.kind==='replace';$('reconcile').disabled=busy||!s?.originalProvider;
  $('ask').disabled=busy||!editable;$('analyze').disabled=busy||!editable||!s?.question;$('prepare').disabled=busy||!editable||!s?.analysis;

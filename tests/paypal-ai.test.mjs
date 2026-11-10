@@ -4,3 +4,23 @@ test('Sandbox transport has fixed recipients, no notification emails, exact draf
 test('draft payload keeps explicit tax/discount configuration and provider links cannot leave Sandbox',()=>{const b=invoiceBody({...SAMPLE,discountCents:100},{number:'BR-123456789abc-0',merchant:'merchant@example.test',buyer:'buyer@example.test'});assert.equal(b.configuration.tax_calculated_after_discount,false);assert.equal(b.amount.breakdown.discount.invoice_discount.amount.value,'1.00');assert.throws(()=>normalizeInvoice({...raw,detail:{...raw.detail,metadata:{recipient_view_url:'https://evil.example'}}}));assert.throws(()=>new InvoicePayPal({clientId:'x',clientSecret:'x',apiBase:'https://api-m.paypal.com'}));});
 test('provider failures redact tokens and bodies',async()=>{const pay=new InvoicePayPal({clientId:'fixture',clientSecret:'fixture-secret',merchant:'m@example.test',buyer:'b@example.test',fetchImpl:async()=>new Response('secret server body',{status:500})});await assert.rejects(pay.get(raw.id),e=>!e.message.includes('secret'));});
 test('expired AI allowance makes zero requests; mock evidence remains explicitly labeled',async()=>{const s=createCase('fixture');s.question={lineId:'revision',text:'Why two?'};assert.equal((await new EvidenceAI().analyze(s)).execution,'local_evidence_test_double');let calls=0;const ai=new EvidenceAI({mode:'live',baseUrl:'https://api.openai.com/v1',key:'fixture',model:'fixture',expiresAt:'2000-01-01',approval:'fixture',fetchImpl:async()=>{calls++;}});await assert.rejects(ai.analyze(s));assert.equal(calls,0);});
+
+const draftLinkPayPal=href=>new InvoicePayPal({clientId:'fixture',clientSecret:'fixture',merchant:'merchant@example.test',buyer:'buyer@example.test',fetchImpl:async url=>{assert.ok(url.startsWith('https://api-m.sandbox.paypal.com/'));return Response.json(url.endsWith('/token')?{access_token:'fixture',expires_in:300}:url.endsWith('/'+raw.id)?raw:{href,rel:'self',method:'GET'});}});
+test('draft resource links accept both official Sandbox hosts without changing the request host',async()=>{
+ for(const host of ['api-m.sandbox.paypal.com','api.sandbox.paypal.com']){
+  const pay=draftLinkPayPal(`https://${host}/v2/invoicing/invoices/${raw.id}`),created=await pay.create(SAMPLE,{number:'BR-123456789abc-0'});
+  assert.equal(created.id,raw.id);assert.equal((await pay.get(created.id)).totalCents,18000);
+ }
+});
+test('draft resource links reject foreign hosts, credentials, ports and non-resource suffixes',async()=>{
+ for(const href of [
+  `https://api-m.paypal.com/v2/invoicing/invoices/${raw.id}`,
+  `https://api.sandbox.paypal.com.evil.test/v2/invoicing/invoices/${raw.id}`,
+  `https://fixture@api.sandbox.paypal.com/v2/invoicing/invoices/${raw.id}`,
+  `http://api.sandbox.paypal.com/v2/invoicing/invoices/${raw.id}`,
+  `https://api.sandbox.paypal.com:444/v2/invoicing/invoices/${raw.id}`,
+  `https://api.sandbox.paypal.com/v2/invoicing/invoices/${raw.id}/send`,
+  `https://api.sandbox.paypal.com/v2/invoicing/invoices/${raw.id}?next=1`,
+  `https://api.sandbox.paypal.com/v2/invoicing/invoices/${raw.id}#fragment`
+ ])await assert.rejects(draftLinkPayPal(href).create(SAMPLE,{number:'BR-123456789abc-0'}),{code:'PAYPAL_PROTOCOL'});
+});

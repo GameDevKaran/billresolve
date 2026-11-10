@@ -9,3 +9,22 @@ test('paid original arriving after approvals prevents cancellation and replaceme
 test('lost draft creation response cannot trigger duplicate original or abandon unresolved case',async t=>{class Lost extends MockInvoices{async create(...args){await super.create(...args);throw Error('fixture timeout');}}const pay=new Lost(),h=await harness(t,{paypal:pay});await ok(h,'/api/new',{});assert.equal((await h.call('/api/original',{})).http,502);const retry=await h.call('/api/original',{});assert.equal(retry.error.code,'CREATE_UNRESOLVED');assert.equal((await h.call('/api/new',{})).error.code,'UNSETTLED_CASE');assert.equal(pay.records.size,1);});
 test('lost cancellation response recovers by readback and continues only the approved replacement',async t=>{class LostCancel extends MockInvoices{calls=0;async cancel(id){this.calls++;await super.cancel(id);throw Error('fixture timeout');}}const pay=new LostCancel(),h=await harness(t,{paypal:pay});const r=await prepare(h);await approve(h,r);assert.equal((await h.call('/api/issue',{})).http,502);await ok(h,'/api/reconcile',{});const done=await ok(h,'/api/issue',{});assert.equal(done.case.status,'issued');assert.equal(pay.calls,1);assert.equal(pay.records.size,2);});
 test('SQLite/mock persistence survives server replacement and rejects cross-origin/private source access',async t=>{const store=new SqliteStore(':memory:'),h=await harness(t,{store});const r=await prepare(h);const fresh=await harness(t,{store});fresh.cookie(h.cookie());assert.equal((await ok(fresh,'/api/reconcile',{})).case.originalProvider.id,r.case.originalProvider.id);assert.equal((await fresh.call('/api/issue',{}, {Origin:'https://wrong.example'})).http,403);assert.equal((await fresh.call('/.env')).http,404);assert.equal((await fresh.call('/src/server.mjs')).http,404);fresh.cookie(h.cookie().replace(/.$/,'z'));assert.equal((await fresh.call('/api/session')).case,null);});
+
+class SharedInvoices extends MockInvoices{
+ cancelCalls=0;
+ async send(id){await super.send(id);this.records.get(id).status='SHARED';}
+ async cancel(id){this.cancelCalls++;const v=this.records.get(id);assert.equal(v.status,'SHARED');v.status='CANCELLED';}
+}
+test('shared-link invoices permit reviewed correction and preserve authoritative SHARED readback',async t=>{
+ const pay=new SharedInvoices(),h=await harness(t,{paypal:pay});const r=await prepare(h);
+ assert.equal(r.case.originalProvider.status,'SHARED');await approve(h,r);
+ const done=await ok(h,'/api/issue',{});
+ assert.equal(done.case.originalProvider.status,'CANCELLED');assert.equal(done.case.replacementProvider.status,'SHARED');
+ assert.equal(done.case.replacementProvider.totalCents,14000);assert.equal(done.case.status,'issued');assert.equal(done.case.operation,null);assert.equal(pay.cancelCalls,1);
+ await ok(h,'/api/issue',{});assert.equal(pay.records.size,2);assert.equal(pay.cancelCalls,1);
+});
+test('shared-link state never bypasses the zero-paid-amount cancellation guard',async t=>{
+ const pay=new SharedInvoices(),h=await harness(t,{paypal:pay});const r=await prepare(h);await approve(h,r);
+ pay.records.get(r.case.originalProvider.id).paidAmountCents=1;
+ const denied=await h.call('/api/issue',{});assert.equal(denied.error.code,'ORIGINAL_NOT_UNPAID');assert.equal(pay.cancelCalls,0);assert.equal(pay.records.size,1);
+});

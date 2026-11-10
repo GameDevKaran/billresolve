@@ -34,7 +34,7 @@ export class InvoicePayPal{
  }
  async create(data,options){const raw=await this.#request('/v2/invoicing/invoices',{method:'POST',body:invoiceBody(data,{...options,merchant:this.#merchant,buyer:this.#buyer})});
   let invoiceId=raw?.id;
-  if(!invoiceId&&raw?.href){const u=new URL(raw.href);if(u.origin!==base||!/^\/v2\/invoicing\/invoices\/INV2-[A-Z0-9-]+$/.test(u.pathname)||u.search||u.hash)fail('PAYPAL_PROTOCOL','Invalid draft resource link.',502);invoiceId=u.pathname.split('/').at(-1);}
+  if(!invoiceId&&raw?.href){const u=new URL(raw.href);if(u.protocol!=='https:'||u.username||u.password||u.port||!['api-m.sandbox.paypal.com','api.sandbox.paypal.com'].includes(u.hostname)||!/^\/v2\/invoicing\/invoices\/INV2-[A-Z0-9-]+$/.test(u.pathname)||u.search||u.hash)fail('PAYPAL_PROTOCOL','Invalid draft resource link.',502);invoiceId=u.pathname.split('/').at(-1);}
   return{id:id(invoiceId)};
  }
  async get(invoiceId){return normalizeInvoice(await this.#request('/v2/invoicing/invoices/'+id(invoiceId)));}
