@@ -31,3 +31,5 @@ Both demo roles share one private session; they are not separate authenticated p
 Copy `.env.example` to ignored `.env.local`; keep credentials server-side. See [deployment](docs/deployment.md). Thirteen local tests cover amounts, evidence, approvals, transport fixtures, persistence, stale paid state, lost responses and request security. Actual browser checks exercised the complete local flow, reload and export. These are automated/browser-agent checks, not human reviews or live sponsor verification.
 
 Built with AI-assisted coding and ChatGPT-assisted research. [Reuse and licenses](THIRD_PARTY_NOTICES.md). Original code: [MIT](LICENSE).
+
+Sandbox provider controls and real AI calls require a private operator access code. Set `BILLRESOLVE_OPERATOR_CODE` to a unique random 32–256 character value. Sessions unlock for one hour; the public landing page contains no credentials. Local test mode works without the gate.

@@ -1,3 +1,4 @@
+import {operatorAccess} from './operator.mjs';
 import http from 'node:http';import {readFile} from 'node:fs/promises';import {randomUUID,randomBytes,createHash,timingSafeEqual} from 'node:crypto';import {pathToFileURL} from 'node:url';
 import * as d from './domain.mjs';import {SqliteStore,GcsStore,serialQueue} from './store.mjs';import {InvoicePayPal,MockInvoices} from './paypal.mjs';import {EvidenceAI} from './ai.mjs';
 const hash=v=>createHash('sha256').update(v).digest('hex');
@@ -5,11 +6,11 @@ const headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Re
 const files=new Map([['/',['index.html','text/html']],['/app.js',['app.js','text/javascript']],['/styles.css',['styles.css','text/css']]]);
 function identity(req){const value=(req.headers.cookie||'').split(';').map(v=>v.trim()).find(v=>v.startsWith('billresolve='))?.slice(12);const m=/^([a-f0-9-]{36})\.([a-f0-9]{64})$/.exec(value||'');return m?{id:m[1],secret:m[2]}:null;}
 async function body(req){let n=0,a=[];for await(const c of req){n+=c.length;if(n>64000)d.fail('BODY_LIMIT','Request too large.',413);a.push(c);}try{const v=JSON.parse(Buffer.concat(a).toString()||'{}');if(!v||typeof v!=='object'||Array.isArray(v))throw Error();return v;}catch{d.fail('INVALID_JSON','A JSON object is required.',400);}}
-export function createApp({store=new SqliteStore(),paypal=null,ai=new EvidenceAI(),maxAiCalls=0,origin='http://127.0.0.1:8803'}={}){
- const u=new URL(origin);if(u.username||u.password||u.pathname!=='/'||u.search||u.hash||!(u.protocol==='https:'||u.protocol==='http:'&&['127.0.0.1','localhost'].includes(u.hostname)))throw Error('Explicit secure or localhost origin required');origin=u.origin;
+export function createApp({store=new SqliteStore(),paypal=null,ai=new EvidenceAI(),maxAiCalls=0,origin='http://127.0.0.1:8803',operatorCode}={}){
+ const u=new URL(origin);if(u.username||u.password||u.pathname!=='/'||u.search||u.hash||!(u.protocol==='https:'||u.protocol==='http:'&&['127.0.0.1','localhost'].includes(u.hostname)))throw Error('Explicit secure or localhost origin required');origin=u.origin;const access=operatorAccess({required:paypal?.execution==='paypal_sandbox_http'||ai.mode==='live',code:operatorCode,origin});
  if(!Number.isSafeInteger(maxAiCalls)||maxAiCalls<0||maxAiCalls>1000)throw Error('Invalid model request allowance');
  const queue=serialQueue(),rates=new Map();
- const view=r=>({case:r?.state||null,termsHash:r?.state.revision?d.terms(r.state):null,integration:{paypal:paypal?.execution||'local_invoice_test_double',ai:ai.execution,liveVerified:false}});
+ const view=(r,operatorRequired=false)=>({case:r?.state||null,termsHash:r?.state.revision?d.terms(r.state):null,integration:{paypal:paypal?.execution||'local_invoice_test_double',ai:ai.execution,liveVerified:false,operatorRequired}});
  const send=(res,status,v,extra={})=>{res.writeHead(status,{...headers,'Content-Type':'application/json; charset=utf-8',...extra});res.end(JSON.stringify(v));};
  async function load(who){if(!who)return null;const r=await store.read(who.id);if(!r||typeof r.value.authHash!=='string'||r.value.authHash.length!==64||!timingSafeEqual(Buffer.from(r.value.authHash,'hex'),Buffer.from(hash(who.secret),'hex')))d.fail('SESSION_MISSING','This private session is unavailable.',401);return r;}
  const number=(s,replacement)=>'BR-'+s.id.replaceAll('-','').slice(0,12)+'-'+(replacement?'1':'0');
@@ -45,15 +46,16 @@ export function createApp({store=new SqliteStore(),paypal=null,ai=new EvidenceAI
   }
   d.fail('RECONCILE_REQUIRED','Read provider state to finish the prepared operation.');
  }
- const server=http.createServer(async(req,res)=>{let record=null;try{
+ const server=http.createServer(async(req,res)=>{let record=null;const authorized=access.allowed(req);try{
   const path=new URL(req.url,origin).pathname;
   if(req.method==='GET'&&files.has(path)){const [name,type]=files.get(path);res.writeHead(200,{...headers,'Content-Type':type+'; charset=utf-8'});res.end(await readFile(new URL('../public/'+name,import.meta.url)));return;}
   if(req.method==='GET'&&path==='/health'){send(res,200,{ok:true,app:'BillResolve',mode:paypal?'sandbox':'mock'});return;}
   const who=identity(req);
-  if(req.method==='GET'&&['/api/session','/api/export'].includes(path)){record=(await load(who))?.value;if(path==='/api/export'&&!record)d.fail('NO_SESSION','Start a case first.',401);send(res,200,view(record),path==='/api/export'?{'Content-Disposition':'attachment; filename="billresolve-record.json"'}:{});return;}
+  if(req.method==='GET'&&['/api/session','/api/export'].includes(path)){if(!authorized){if(path==='/api/export')d.fail('OPERATOR_REQUIRED','Unlock Sandbox controls first.',401);send(res,200,view(null,true));return;}record=(await load(who))?.value;if(path==='/api/export'&&!record)d.fail('NO_SESSION','Start a case first.',401);send(res,200,view(record),path==='/api/export'?{'Content-Disposition':'attachment; filename="billresolve-record.json"'}:{});return;}
   if(req.method!=='POST'||!path.startsWith('/api/'))d.fail('NOT_FOUND','Not found.',404);
   if(req.headers.origin!==origin||!String(req.headers['content-type']||'').startsWith('application/json'))d.fail('ORIGIN_REQUIRED','Use the same-origin application.',403);
   const input=await body(req),rateKey=who?.id||req.socket.remoteAddress,minute=Math.floor(Date.now()/60000),prior=rates.get(rateKey);const count=prior?.minute===minute?prior.count+1:1;if(rates.size>2000)rates.clear();rates.set(rateKey,{minute,count});if(count>50)d.fail('RATE_LIMIT','Please wait a minute before retrying.',429);
+  if(path==='/api/unlock'){const cookie=access.unlock(input.accessCode);if(!cookie)d.fail('OPERATOR_REQUIRED','The operator access code was not accepted.',401);send(res,200,view(null),{'Set-Cookie':cookie});return;}if(!authorized)d.fail('OPERATOR_REQUIRED','Unlock Sandbox controls first.',401);
   await queue(who?.id||rateKey,async()=>{
    let row=await load(who);record=row?.value;
    if(path==='/api/new'){
@@ -85,7 +87,7 @@ export function createApp({store=new SqliteStore(),paypal=null,ai=new EvidenceAI
    }catch(e){if(s.operation){s.operation.error=e.code||'UNRESOLVED';d.event(s,'provider_operation_unresolved',{stage:s.operation.stage,code:e.code||'UNRESOLVED'});try{await save();}catch{}}throw e;}
    send(res,200,view(record));
   });
- }catch(e){send(res,e.httpStatus||502,{...view(record),error:{code:e.code||'REQUEST_FAILED',message:e.code?e.message:'The request did not complete. Read stored/provider state before retrying.'}});}});
+ }catch(e){send(res,e.httpStatus||502,{...view(record,!authorized),error:{code:e.code||'REQUEST_FAILED',message:e.code?e.message:'The request did not complete. Read stored/provider state before retrying.'}});}});
  server.headersTimeout=10000;server.requestTimeout=30000;return server;
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
@@ -94,5 +96,5 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  const paypal=mode==='sandbox'?new InvoicePayPal({clientId:e.BILLRESOLVE_PAYPAL_CLIENT_ID,clientSecret:e.BILLRESOLVE_PAYPAL_CLIENT_SECRET,merchant:e.BILLRESOLVE_SANDBOX_MERCHANT,buyer:e.BILLRESOLVE_SANDBOX_BUYER}):null;
  const ai=new EvidenceAI({mode:e.BILLRESOLVE_AI_MODE||'mock',baseUrl:e.BILLRESOLVE_AI_BASE_URL,key:e.BILLRESOLVE_AI_KEY,model:e.BILLRESOLVE_AI_MODEL,expiresAt:e.BILLRESOLVE_AI_EXPIRES_AT,approval:e.BILLRESOLVE_AI_APPROVAL});
  const port=Number(e.PORT||8803),origin=e.BILLRESOLVE_ORIGIN||`http://127.0.0.1:${port}`;if(e.K_SERVICE&&(mode!=='sandbox'||e.BILLRESOLVE_STORE!=='gcs'||!e.BILLRESOLVE_ORIGIN?.startsWith('https://')))throw Error('Cloud release requires Sandbox, isolated GCS and explicit HTTPS origin');
- createApp({store,paypal,ai,origin,maxAiCalls:Number(e.BILLRESOLVE_AI_MAX_CALLS||0)}).listen(port,e.K_SERVICE?'0.0.0.0':'127.0.0.1',()=>console.log(`BillResolve ${mode} at ${origin}`));
+ createApp({store,paypal,ai,operatorCode:e.BILLRESOLVE_OPERATOR_CODE,origin,maxAiCalls:Number(e.BILLRESOLVE_AI_MAX_CALLS||0)}).listen(port,e.K_SERVICE?'0.0.0.0':'127.0.0.1',()=>console.log(`BillResolve ${mode} at ${origin}`));
 }
